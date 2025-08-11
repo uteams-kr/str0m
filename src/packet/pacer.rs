@@ -324,7 +324,7 @@ impl Pacer for LeakyBucketPacer {
                 .sum();
             if total_packet_count > 0 {
                 let diff = next_poll_time.saturating_duration_since(now);
-                trace!(?now, ?diff, ?next_poll_time, "Delaying send");
+                // trace!(?now, ?diff, ?next_poll_time, "Delaying send");
             }
 
             // We don't set this because between now and the next poll, queue state can change such

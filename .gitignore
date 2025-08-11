@@ -7,3 +7,4 @@ xamples
 .vscode
 fuzz/corpus
 fuzz/artifacts
+*.orig

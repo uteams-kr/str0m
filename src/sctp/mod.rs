@@ -409,8 +409,6 @@ impl RtcSctp {
             return;
         }
 
-        trace!("Handle timeout: {:?}", now);
-
         self.last_now = now;
 
         // Remove closed entries.

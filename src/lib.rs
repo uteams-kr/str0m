@@ -608,10 +608,10 @@
 #![allow(clippy::precedence)]
 #![allow(clippy::doc_overindented_list_items)]
 #![allow(clippy::uninlined_format_args)]
-#![deny(missing_docs)]
+#![warn(missing_docs)]
 
 #[macro_use]
-extern crate tracing;
+extern crate log;
 
 use bwe::{Bwe, BweKind};
 use change::{DirectApi, SdpApi};
@@ -655,7 +655,7 @@ pub mod ice {
     pub use crate::io::{StunMessage, StunMessageBuilder, StunPacket, TransId};
 }
 
-mod io;
+pub mod io;
 use io::DatagramRecvInner;
 
 mod packet;
@@ -736,7 +736,7 @@ mod streams;
 
 /// Network related types to get socket data in/out of [`Rtc`].
 pub mod net {
-    pub use crate::io::{DatagramRecv, DatagramSend, Protocol, Receive, Transmit};
+    pub use crate::io::{DatagramRecv, DatagramSend, Protocol, Receive, Transmit, DatagramRecvInner};
 }
 
 /// Various error types.
@@ -751,6 +751,9 @@ pub mod error {
 }
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+use shadow_rs::shadow;
+
+shadow!(build);
 
 /// Errors for the whole Rtc engine.
 #[derive(Debug, Error)]
@@ -1004,13 +1007,28 @@ impl Event {
 }
 
 /// Input as expected by [`Rtc::handle_input()`]. Either network data or a timeout.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[allow(clippy::large_enum_variant)] // We purposely don't want to allocate.
-pub enum Input<'a> {
+pub enum Input {
     /// A timeout without any network input.
     Timeout(Instant),
     /// Network input.
-    Receive(Instant, net::Receive<'a>),
+    Receive(Instant, net::Receive),
+    
+    /// ESM: STUN input (fast-path)
+    Stun(Instant, net::Receive, Option<(String, String)>),
+}
+
+impl Input {
+    /// 메세지가 STUN인지 체크
+    #[inline]
+    pub fn is_stun(&self) -> bool {
+        if let Input::Stun(_, _, _) = self {
+            return true
+        }
+
+        return false;
+    }
 }
 
 /// Output produced by [`Rtc::poll_output()`]
@@ -1022,6 +1040,9 @@ pub enum Output {
 
     /// Network data that is to be sent.
     Transmit(net::Transmit),
+
+    /// ESM ///
+    TransmitOrderGuarantee(net::Transmit),
 
     /// Some event such as media data arriving from the remote peer or connection events.
     Event(Event),
@@ -1141,7 +1162,11 @@ impl Rtc {
     }
 
     pub(crate) fn new_from_config(config: RtcConfig) -> Self {
-        let session = Session::new(&config);
+        let session  = if let Some(sid) = config.session_id {
+            Session::new_with_session_id(&config, sid)
+        } else {
+            Session::new(&config)
+        };
 
         let local_creds = config.local_ice_credentials.unwrap_or_else(IceCreds::new);
         let mut ice = IceAgent::with_local_credentials(local_creds);
@@ -1427,17 +1452,21 @@ impl Rtc {
         let o = self.do_poll_output()?;
 
         match &o {
+            Output::Transmit(t) => {
+                self.peer_bytes_tx += t.contents.len() as u64;
+                // trace!("OUT {:?}", t)
+            }
+            Output::TransmitOrderGuarantee(t) => {
+                self.peer_bytes_tx += t.contents.len() as u64;
+                // trace!("OUT Guantee {:?}", t)
+            }
+            Output::Timeout(_t) => {}
             Output::Event(e) => match e {
                 Event::ChannelData(_) | Event::MediaData(_) | Event::RtpPacket(_) => {
                     trace!("{:?}", e)
                 }
                 _ => debug!("{:?}", e),
             },
-            Output::Transmit(t) => {
-                self.peer_bytes_tx += t.contents.len() as u64;
-                trace!("OUT {:?}", t)
-            }
-            Output::Timeout(_t) => {}
         }
 
         Ok(o)
@@ -1592,11 +1621,16 @@ impl Rtc {
 
         if let Some(send) = &self.send_addr {
             // These can only be sent after we got an ICE connection.
-            let datagram = None
-                .or_else(|| self.dtls.poll_datagram())
-                .or_else(|| self.session.poll_datagram(self.last_now));
-
-            if let Some(contents) = datagram {
+            if let Some(contents) = self.dtls.poll_datagram() {
+                let t = net::Transmit {
+                    proto: send.proto,
+                    source: send.source,
+                    destination: send.destination,
+                    contents,
+                };
+                return Ok(Output::TransmitOrderGuarantee(t));
+            }
+            if let Some(contents) = self.session.poll_datagram(self.last_now) {
                 let t = net::Transmit {
                     proto: send.proto,
                     source: send.source,
@@ -1692,10 +1726,16 @@ impl Rtc {
     /// }
     /// ```
     pub fn accepts(&self, input: &Input) -> bool {
-        let Input::Receive(_, r) = input else {
-            // always accept the Input::Timeout.
-            return true;
-        };
+        match input {
+            Input::Timeout(_) => return true,
+            Input::Receive(_, r) | Input::Stun(_, r, _) => {
+                // Fast path: DTLS, RTP, and RTCP traffic coming in from the same socket address
+                // we've nominated for sending via the ICE agent. This is the typical case
+                if let Some(send_addr) = &self.send_addr {
+                    if r.source == send_addr.destination {
+                        return true;
+                    }
+                }
 
         // Fast path: DTLS, RTP, and RTCP traffic coming in from the same socket address
         // we've nominated for sending via the ICE agent. This is the typical case
@@ -1717,8 +1757,6 @@ impl Rtc {
         if self.ice.has_viable_remote_candidate(r.source) {
             return true;
         }
-
-        false
     }
 
     /// Provide input to this `Rtc` instance. Input is either a [`Input::Timeout`] for some
@@ -1752,7 +1790,7 @@ impl Rtc {
 
         match input {
             Input::Timeout(now) => self.do_handle_timeout(now)?,
-            Input::Receive(now, r) => {
+            Input::Receive(now, r) | Input::Stun(now, r, _) => {
                 self.do_handle_receive(now, r)?;
                 self.do_handle_timeout(now)?;
             }
@@ -1806,20 +1844,23 @@ impl Rtc {
     fn do_handle_receive(&mut self, now: Instant, r: net::Receive) -> Result<(), RtcError> {
         self.init_time(now);
 
-        trace!("IN {:?}", r);
+        // trace!("IN {:?}", r);
         self.last_now = now;
         use DatagramRecvInner::*;
 
         let bytes_rx = match r.contents.inner {
             // TODO: stun is already parsed (depacketized) here
             Stun(_) => 0,
-            Dtls(v) | Rtp(v) | Rtcp(v) => v.len(),
+            Dtls(ref v) | Rtp(ref v) | Rtcp(ref v) => v.len(),
         };
 
         self.peer_bytes_rx += bytes_rx as u64;
 
         match r.contents.inner {
             Stun(stun) => {
+                let buf = stun;
+                let stun = StunMessage::parse(&buf).unwrap();
+
                 let packet = io::StunPacket {
                     proto: r.proto,
                     source: r.source,
@@ -1828,9 +1869,9 @@ impl Rtc {
                 };
                 self.ice.handle_packet(now, packet);
             }
-            Dtls(dtls) => self.dtls.handle_receive(dtls)?,
-            Rtp(rtp) => self.session.handle_rtp_receive(now, rtp),
-            Rtcp(rtcp) => self.session.handle_rtcp_receive(now, rtcp),
+            Dtls(dtls) => self.dtls.handle_receive(dtls.as_ref())?,
+            Rtp(rtp) => self.session.handle_rtp_receive(now, rtp.as_ref()),
+            Rtcp(rtcp) => self.session.handle_rtcp_receive(now, rtcp.as_ref()),
         }
 
         Ok(())
@@ -1889,6 +1930,13 @@ impl Rtc {
     pub fn codec_config(&self) -> &CodecConfig {
         &self.session.codec_config
     }
+
+    /// ESM 제작: Stun Crendetial을 생성합니다.
+    /// RTC를 만든 직후에는 Remote Candidate 없이, ufreq, ice-pwd 같은것으로만 상대를 파악할 수 있습니다.
+    /// 상대를 파악하기 위해 stun_credential이 필요합니다.
+    pub fn get_stun_credential(&self) -> (&IceCreds, std::option::Option<&IceCreds>) {
+        (self.ice.local_credentials(), self.ice.remote_credentials())
+    }
 }
 
 /// Configuation for the DTLS certificate used for the Rtc instance. This can be set to
@@ -1925,6 +1973,7 @@ impl Default for DtlsCertConfig {
 /// Configs implement [`Clone`] to help create multiple `Rtc` instances.
 #[derive(Debug, Clone)]
 pub struct RtcConfig {
+    session_id: Option<rtp_::SessionId>,
     local_ice_credentials: Option<IceCreds>,
     crypto_provider: CryptoProvider,
     dtls_cert_config: DtlsCertConfig,
@@ -1956,6 +2005,11 @@ impl RtcConfig {
     /// Creates a new default config.
     pub fn new() -> Self {
         RtcConfig::default()
+    }
+
+    pub fn set_session_id(mut self, session_id: u64) -> Self {
+        self.session_id = Some(rtp_::SessionId::from(session_id));
+        self
     }
 
     /// Get the local ICE credentials, if set.
@@ -2474,6 +2528,7 @@ impl BweConfig {
 impl Default for RtcConfig {
     fn default() -> Self {
         Self {
+            session_id: None,
             local_ice_credentials: None,
             crypto_provider: CryptoProvider::process_default().unwrap_or(CryptoProvider::OpenSsl),
             dtls_cert_config: Default::default(),
@@ -2554,6 +2609,8 @@ macro_rules! log_stat {
     };
 }
 pub(crate) use log_stat;
+
+use crate::io::StunMessage;
 
 #[cfg(test)]
 #[doc(hidden)]

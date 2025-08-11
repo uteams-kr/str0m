@@ -142,6 +142,36 @@ impl DtlsCert {
 
         Ok(imp)
     }
+
+    /// DTLS 인증서 파일을 로딩합니다.
+    pub fn new_from_exist(p: CryptoProvider, cert: &[u8], key: &[u8]) -> Self {
+        let inner = match p {
+            CryptoProvider::OpenSsl => {
+                #[cfg(feature = "openssl")]
+                {
+                    let cert = super::ossl::OsslDtlsCert::from_pem_files(cert, key).expect("DTLS 인증서 파일 로딩 실패");
+                    DtlsCertInner::OpenSsl(cert)
+                }
+                #[cfg(not(feature = "openssl"))]
+                {
+                    DtlsCertInner::OpenSsl(DummyCert(p))
+                }
+            }
+            CryptoProvider::WinCrypto => {
+                #[cfg(all(feature = "wincrypto", target_os = "windows"))]
+                {
+                    let cert = super::wincrypto::WinCryptoDtlsCert::new(opts);
+                    DtlsCertInner::WinCrypto(cert)
+                }
+                #[cfg(not(all(feature = "wincrypto", target_os = "windows")))]
+                {
+                    DtlsCertInner::WinCrypto(DummyCert(p))
+                }
+            }
+        };
+
+        DtlsCert(inner)
+    }
 }
 
 impl fmt::Debug for DtlsCert {

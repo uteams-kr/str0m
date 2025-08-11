@@ -208,12 +208,12 @@ impl TrendlineEstimator {
             };
 
             overuse.count += 1;
-            trace!(
-                timeoverusing = ?overuse.time_overusing,
-                trend,
-                previous_trend = self.previous_trend,
-                "Trendline Estimator: Maybe overusing"
-            );
+            // trace!(
+            //     timeoverusing = ?overuse.time_overusing,
+            //     trend,
+            //     previous_trend = self.previous_trend,
+            //     "Trendline Estimator: Maybe overusing"
+            // );
 
             if overuse.time_overusing > OVER_USE_TIME_THRESHOLD
                 && overuse.count > 1

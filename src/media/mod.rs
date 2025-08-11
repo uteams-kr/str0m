@@ -20,6 +20,7 @@ use crate::streams::{RtpPacket, Streams};
 use crate::util::already_happened;
 
 mod event;
+use bytes::Bytes;
 pub use event::*;
 
 mod writer;
@@ -170,7 +171,7 @@ pub(crate) struct ToPayload {
     pub wallclock: Instant,
     pub rtp_time: MediaTime,
     pub start_of_talk_spurt: bool,
-    pub data: Vec<u8>,
+    pub data: Bytes,
     pub ext_vals: ExtensionValues,
 }
 

@@ -3,6 +3,8 @@ use std::fmt;
 use std::ops::{Range, RangeInclusive};
 use std::time::Instant;
 
+use bytes::Bytes;
+
 use crate::rtp_::{ExtensionValues, MediaTime, RtpHeader, SenderInfo, SeqNo};
 
 use super::contiguity::Contiguity;
@@ -32,7 +34,7 @@ pub struct Depacketized {
     pub time: MediaTime,
     pub contiguous: bool,
     pub meta: Vec<RtpMeta>,
-    pub data: Vec<u8>,
+    pub data: Bytes,
     pub codec_extra: CodecExtra,
 }
 
@@ -269,7 +271,7 @@ impl DepacketizingBuffer {
             time,
             contiguous: true, // the caller taking ownership will modify this accordingly
             meta,
-            data,
+            data: Bytes::from_owner(data),
             codec_extra,
         })
     }

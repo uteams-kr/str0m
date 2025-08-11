@@ -1,6 +1,8 @@
 use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
 
+use bytes::Bytes;
+
 use crate::bwe::BweKind;
 use crate::crypto::SrtpProfile;
 use crate::crypto::{KeyingMaterial, SrtpCrypto};
@@ -110,6 +112,11 @@ impl Session {
         while *id > MAX_ID {
             id = (*id >> 1).into();
         }
+
+        Self::new_with_session_id(config, id)
+    }
+
+    pub fn new_with_session_id(config: &RtcConfig, id: SessionId) -> Self {
         let (pacer, bwe) = if let Some(config) = &config.bwe_config {
             let rate = config.initial_bitrate;
             let pacer = PacerImpl::LeakyBucket(LeakyBucketPacer::new(rate * PACING_FACTOR * 2.0));
@@ -698,7 +705,7 @@ impl Session {
             "Encrypted SRTCP should be less than MTU"
         );
 
-        Some(protected.into())
+        Some(Bytes::from(protected).into())
     }
 
     fn poll_packet(&mut self, now: Instant) -> Option<DatagramSend> {
@@ -734,7 +741,7 @@ impl Session {
             payload_size,
         } = receipt;
 
-        trace!(payload_size, is_padding, "Poll RTP: {:?}", header);
+        // trace!(payload_size, is_padding, "Poll RTP: {:?}", header);
 
         #[cfg(feature = "_internal_dont_use_log_stats")]
         {
@@ -760,7 +767,7 @@ impl Session {
         // avoiding an extra poll_timeout.
         self.update_queue_state(now);
 
-        Some(protected.into())
+        Some(Bytes::from_owner(protected).into())
     }
 
     pub fn poll_timeout(&mut self) -> (Option<Instant>, Reason) {

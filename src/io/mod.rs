@@ -7,6 +7,7 @@ use std::io;
 use std::net::SocketAddr;
 use std::ops::Deref;
 
+use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -20,6 +21,8 @@ mod id;
 // this is only exported from this crate to avoid needing
 // a "util" crate or similar.
 pub(crate) use id::Id;
+
+use crate::io::stun::StunRawMessage;
 
 /// Targeted MTU
 pub(crate) const DATAGRAM_MTU: usize = 1150;
@@ -61,7 +64,6 @@ pub enum Protocol {
 }
 
 /// An instruction to send an outgoing packet.
-#[derive(Serialize, Deserialize)]
 pub struct Transmit {
     /// Protocol the transmission should use.
     ///
@@ -117,24 +119,24 @@ pub struct Transmit {
 }
 
 /// A wrapper for some payload that is to be sent.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct DatagramSend(Vec<u8>);
+#[derive(Debug)]
+pub struct DatagramSend(Bytes);
 
-impl From<Vec<u8>> for DatagramSend {
-    fn from(value: Vec<u8>) -> Self {
+impl From<Bytes> for DatagramSend {
+    fn from(value: Bytes) -> Self {
         DatagramSend(value)
     }
 }
 
-impl From<DatagramSend> for Vec<u8> {
+impl From<DatagramSend> for Bytes {
     fn from(value: DatagramSend) -> Self {
         value.0
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 /// Received incoming data.
-pub struct Receive<'a> {
+pub struct Receive {
     /// The protocol the socket this received data originated from is using.
     pub proto: Protocol,
 
@@ -145,17 +147,16 @@ pub struct Receive<'a> {
     pub destination: SocketAddr,
 
     /// Parsed contents of the datagram.
-    #[serde(borrow)]
-    pub contents: DatagramRecv<'a>,
+    pub contents: DatagramRecv,
 }
 
-impl<'a> Receive<'a> {
+impl<'a> Receive {
     /// Creates a new instance by trying to parse the contents of `buf`.
     pub fn new(
         proto: Protocol,
         source: SocketAddr,
         destination: SocketAddr,
-        buf: &'a [u8],
+        buf: Bytes,
     ) -> Result<Self, NetError> {
         let contents = DatagramRecv::try_from(buf)?;
         Ok(Receive {
@@ -181,31 +182,30 @@ pub struct StunPacket<'a> {
 }
 
 /// Wrapper for a parsed payload to be received.
-#[derive(Serialize, Deserialize)]
-pub struct DatagramRecv<'a> {
-    #[serde(borrow)]
-    pub(crate) inner: DatagramRecvInner<'a>,
+#[derive(Clone)]
+pub struct DatagramRecv {
+    pub inner: DatagramRecvInner,
 }
 
 #[allow(clippy::large_enum_variant)] // We purposely don't want to allocate.
-#[derive(Serialize, Deserialize)]
-pub(crate) enum DatagramRecvInner<'a> {
-    Stun(StunMessage<'a>),
-    Dtls(&'a [u8]),
-    Rtp(&'a [u8]),
-    Rtcp(&'a [u8]),
+#[derive(Clone)]
+pub enum DatagramRecvInner {
+    Stun(StunRawMessage),
+    Dtls(Bytes),
+    Rtp(Bytes),
+    Rtcp(Bytes),
 }
 
-impl<'a> TryFrom<&'a [u8]> for DatagramRecv<'a> {
+impl<'a> TryFrom<Bytes> for DatagramRecv {
     type Error = NetError;
 
-    fn try_from(value: &'a [u8]) -> Result<Self, Self::Error> {
+    fn try_from(value: Bytes) -> Result<Self, Self::Error> {
         use DatagramRecvInner::*;
 
         let kind = MultiplexKind::try_from(value)?;
 
         let inner = match kind {
-            MultiplexKind::Stun => Stun(StunMessage::parse(value)?),
+            MultiplexKind::Stun => Stun(value),
             MultiplexKind::Dtls => Dtls(value),
             MultiplexKind::Rtp => Rtp(value),
             MultiplexKind::Rtcp => Rtcp(value),
@@ -262,15 +262,15 @@ impl<'a> TryFrom<&'a [u8]> for MultiplexKind {
     }
 }
 
-impl<'a> TryFrom<&'a Transmit> for Receive<'a> {
+impl<'a> TryFrom<Transmit> for Receive {
     type Error = NetError;
 
-    fn try_from(t: &'a Transmit) -> Result<Self, Self::Error> {
+    fn try_from(t: Transmit) -> Result<Self, Self::Error> {
         Ok(Receive {
             proto: t.proto,
             source: t.source,
             destination: t.destination,
-            contents: DatagramRecv::try_from(&t.contents[..])?,
+            contents: DatagramRecv::try_from(t.contents.0)?,
         })
     }
 }
@@ -294,13 +294,13 @@ impl Deref for DatagramSend {
     }
 }
 
-impl fmt::Debug for DatagramRecv<'_> {
+impl fmt::Debug for DatagramRecv {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.inner.fmt(f)
     }
 }
 
-impl fmt::Debug for DatagramRecvInner<'_> {
+impl fmt::Debug for DatagramRecvInner {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Stun(v) => f.debug_tuple("Stun").field(v).finish(),

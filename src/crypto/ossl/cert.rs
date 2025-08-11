@@ -106,6 +106,13 @@ impl OsslDtlsCert {
         }
     }
 
+    pub fn from_pem_files(cert_pem: &[u8], key_pem: &[u8]) -> Result<Self, CryptoError> {
+        let x509 = X509::from_pem(&cert_pem)?;
+        let pkey = PKey::private_key_from_pem(&key_pem)?;
+
+        Ok(OsslDtlsCert { pkey, x509 })
+    }
+
     pub(crate) fn new_dtls_impl(&self) -> Result<OsslDtlsImpl, CryptoError> {
         OsslDtlsImpl::new(self.clone())
     }

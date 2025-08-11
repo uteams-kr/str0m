@@ -5,6 +5,7 @@ use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::time::Duration;
 
+use bytes::Bytes;
 use crc::{Crc, CRC_32_ISO_HDLC};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -109,6 +110,9 @@ impl TransId {
     }
 }
 
+
+pub type StunRawMessage = Bytes;
+
 /// Represents a STUN message as fit for our purposes.
 ///
 /// STUN is a very flexible protocol.
@@ -135,10 +139,15 @@ impl<'a> StunMessage<'a> {
         if len & 0b0000_0011 > 0 {
             return Err(StunError::Parse("len is not a multiple of 4".into()));
         }
-        if len as usize != buf.len() - 20 {
-            return Err(StunError::Parse(
-                "STUN length vs UDP packet mismatch".into(),
-            ));
+
+        // ESM
+        // In other words, the UDP datagram carries a 112-byte STUN request followed immediately by a full DTLS Certificate handshake.
+        // The problem stems from an incorrect classification of a bundled STUN and DTLS handshake packet. Some systems bundle these messages into one datagram for efficiency, but the current parser can't handle it, treating the datagram as just STUN and failing on the trailing DTLS data. The solution is to update the classifier to separate the two protocols after checking the STUN header. This involves identifying trailing bytes and properly handling DTLS using multiplexing. This approach would handle WebRTC optimizations like bundling well.
+        let attr_end = 20 + len as usize;
+        if buf.len() < attr_end {
+            error!("STUN LENGTH: {}, buf len {}", len, buf.len());
+            error!("whole data {:?}", buf);
+            return Err(StunError::Parse("STUN length vs UDP packet mismatch".into()));
         }
         if &buf[4..8] != MAGIC {
             return Err(StunError::Parse("magic cookie mismatch".into()));
@@ -152,7 +161,7 @@ impl<'a> StunMessage<'a> {
 
         let mut message_integrity_offset = 0;
 
-        let attrs = Attributes::parse(&buf[20..], trans_id, &mut message_integrity_offset)?;
+        let attrs = Attributes::parse(&buf[20..attr_end], trans_id, &mut message_integrity_offset)?;
 
         // length including message integrity attribute
         let (integrity_len, integrity) = if message_integrity_offset > 0 {

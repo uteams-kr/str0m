@@ -1,6 +1,8 @@
 use std::collections::VecDeque;
 use std::io;
 
+use bytes::Bytes;
+
 use crate::net::DatagramSend;
 
 #[derive(Default)]
@@ -53,7 +55,7 @@ impl io::Read for IoBuffer {
 
 impl io::Write for IoBuffer {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let dsend = buf.to_vec().into();
+        let dsend = Bytes::copy_from_slice(buf).into();
 
         self.outgoing.push_back(dsend);
 

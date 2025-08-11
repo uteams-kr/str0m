@@ -2,6 +2,8 @@ use std::fmt;
 use std::ops::RangeInclusive;
 use std::time::Instant;
 
+use bytes::Bytes;
+
 use crate::packet::MediaKind;
 use crate::rtp_::{Direction, ExtensionValues, MediaTime, Mid, Pt, Rid, SenderInfo, SeqNo};
 use crate::sdp::Simulcast as SdpSimulcast;
@@ -90,7 +92,7 @@ impl Simulcast {
 /// Video or audio data from the remote peer.
 ///
 /// This is obtained via [`Event::MediaData`][crate::Event::MediaData].
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Clone)]
 pub struct MediaData {
     /// Identifier of the media in the session this media belongs to.
     pub mid: Mid,
@@ -139,7 +141,7 @@ pub struct MediaData {
     /// transmission units into smaller parts.
     ///
     /// This data is a full depayloaded Sample.
-    pub data: Vec<u8>,
+    pub data: Bytes,
 
     /// RTP header extensions for this media data. This is taken from the
     /// first RTP header.

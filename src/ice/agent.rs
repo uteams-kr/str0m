@@ -5,6 +5,7 @@ use std::panic::RefUnwindSafe;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use bytes::{Bytes, BytesMut};
 use serde::{Deserialize, Serialize};
 
 use crate::ice_::preference::default_local_preference;
@@ -272,6 +273,10 @@ impl IceCreds {
         // at least 24 bits of output to generate the username fragment.
         let ufrag = Id::<16>::random().to_string();
         let pass = Id::<22>::random().to_string();
+        IceCreds { ufrag, pass }
+    }
+    /// ufrag와 비밀번호를 바탕으로 Credential을 생성합니다.
+    pub fn new_with_cred(ufrag: String, pass: String) -> Self {
         IceCreds { ufrag, pass }
     }
 }
@@ -1489,7 +1494,7 @@ impl IceAgent {
             proto,
             source: local_addr,
             destination: remote_addr,
-            contents: buf.into(),
+            contents: Bytes::from(buf).into(),
         };
 
         self.transmit.push_back(trans);
@@ -1536,7 +1541,7 @@ impl IceAgent {
             proto: local.proto(),
             source: local.base(),
             destination: remote.addr(),
-            contents: buf.into(),
+            contents: Bytes::from(buf).into(),
         };
 
         self.transmit.push_back(trans);
