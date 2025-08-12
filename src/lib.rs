@@ -1731,34 +1731,27 @@ impl Rtc {
             Input::Receive(_, r) | Input::Stun(_, r, _) => {
                 // Fast path: DTLS, RTP, and RTCP traffic coming in from the same socket address
                 // we've nominated for sending via the ICE agent. This is the typical case
-                if let Some(send_addr) = &self.send_addr {
-                    if r.source == send_addr.destination {
+                if let Some(send_addr) = &self.send_addr
+                    && r.source == send_addr.destination {
                         return true;
                     }
+
+                // STUN can use the ufrag/password to identify that a message belongs
+                // to this Rtc instance.
+                if let DatagramRecvInner::Stun(v) = &r.contents.inner && let Ok(stun) = StunMessage::parse(&v) {
+                    return self.ice.accepts_message(&stun);
+                }
+
+                // Slow path: Occasionally, traffic comes in on a socket address corresponding
+                // to a successful candidate pair other than the one we've currently nominated.
+                // This typically happens at the beginning of the connection
+                if self.ice.has_viable_remote_candidate(r.source) {
+                    return true;
                 }
             }
         };
 
-        // Fast path: DTLS, RTP, and RTCP traffic coming in from the same socket address
-        // we've nominated for sending via the ICE agent. This is the typical case
-        if let Some(send_addr) = &self.send_addr {
-            if r.source == send_addr.destination {
-                return true;
-            }
-        }
-
-        // STUN can use the ufrag/password to identify that a message belongs
-        // to this Rtc instance.
-        if let DatagramRecvInner::Stun(v) = &r.contents.inner {
-            return self.ice.accepts_message(v);
-        }
-
-        // Slow path: Occasionally, traffic comes in on a socket address corresponding
-        // to a successful candidate pair other than the one we've currently nominated.
-        // This typically happens at the beginning of the connection
-        if self.ice.has_viable_remote_candidate(r.source) {
-            return true;
-        }
+        false
     }
 
     /// Provide input to this `Rtc` instance. Input is either a [`Input::Timeout`] for some

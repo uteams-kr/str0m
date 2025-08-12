@@ -196,13 +196,13 @@ pub enum DatagramRecvInner {
     Rtcp(Bytes),
 }
 
-impl<'a> TryFrom<Bytes> for DatagramRecv {
+impl TryFrom<Bytes> for DatagramRecv {
     type Error = NetError;
 
     fn try_from(value: Bytes) -> Result<Self, Self::Error> {
         use DatagramRecvInner::*;
 
-        let kind = MultiplexKind::try_from(value)?;
+        let kind = MultiplexKind::try_from(value.as_ref())?;
 
         let inner = match kind {
             MultiplexKind::Stun => Stun(value),

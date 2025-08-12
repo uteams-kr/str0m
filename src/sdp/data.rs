@@ -14,7 +14,7 @@ use crate::format::FormatParams;
 use crate::format::PayloadParams;
 use crate::io::Id;
 use crate::rtp_::{Direction, Extension, Frequency, Mid, Pt, Rid, SessionId, Ssrc};
-use crate::{Candidate, IceCreds, VERSION};
+use crate::{build, Candidate, IceCreds, VERSION};
 
 use super::parser::sdp_parser;
 use super::SdpError;

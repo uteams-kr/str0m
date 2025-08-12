@@ -9,11 +9,11 @@ repository = "https://github.com/algesten/str0m"
 readme = "README.md"
 keywords = ["webrtc", "streaming", "video", "audio", "media"]
 categories = ["web-programming", "multimedia", "network-programming"]
-edition = "2021"
+edition = "2024"
 exclude = ["/cargo_deny.sh", "/deny.toml", "/run-fuzz.sh"]
 
 # MSRV
-rust-version = "1.71.1"
+# rust-version = "1.71.1"
 
 # Notes on OpenSSL
 # - Vendored (static link source build) ensures version consistency and easier

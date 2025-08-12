@@ -831,7 +831,7 @@ impl IceAgent {
 
         let num_pairs = self.candidate_pairs.len();
         if num_pairs > max && !self.has_exceeded_max_candidate_pairs {
-            warn!(%max, %num_pairs, "Exceeded max number of candidate pairs");
+            // warn!(%max, %num_pairs, "Exceeded max number of candidate pairs");
             self.has_exceeded_max_candidate_pairs = true;
         }
 
