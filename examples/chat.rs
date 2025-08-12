@@ -1,5 +1,5 @@
 #[macro_use]
-extern crate tracing;
+extern crate log;
 
 use std::collections::VecDeque;
 use std::io::ErrorKind;
@@ -11,6 +11,8 @@ use std::sync::{Arc, Weak};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use bytes::{Bytes, BytesMut};
+use combine::stream::buf_reader;
 use rouille::Server;
 use rouille::{Request, Response};
 use str0m::change::{SdpAnswer, SdpOffer, SdpPendingOffer};
@@ -107,7 +109,7 @@ fn web_request(request: &Request, addr: SocketAddr, tx: SyncSender<Rtc>) -> Resp
 fn run(socket: UdpSocket, rx: Receiver<Rtc>) -> Result<(), RtcError> {
     let mut clients: Vec<Client> = vec![];
     let mut to_propagate: VecDeque<Propagated> = VecDeque::new();
-    let mut buf = vec![0; 2000];
+    let mut buf = BytesMut::with_capacity(2000);
 
     loop {
         // Clean out disconnected clients
@@ -227,8 +229,8 @@ fn propagate(propagated: &Propagated, clients: &mut [Client]) {
     }
 }
 
-fn read_socket_input<'a>(socket: &UdpSocket, buf: &'a mut Vec<u8>) -> Option<Input<'a>> {
-    buf.resize(2000, 0);
+fn read_socket_input<'a>(socket: &UdpSocket, buf: &mut BytesMut) -> Option<Input> {
+    buf.reserve(2000);
 
     match socket.recv_from(buf) {
         Ok((n, source)) => {
@@ -236,7 +238,7 @@ fn read_socket_input<'a>(socket: &UdpSocket, buf: &'a mut Vec<u8>) -> Option<Inp
 
             // Parse data to a DatagramRecv, which help preparse network data to
             // figure out the multiplexing of all protocols on one UDP port.
-            let Ok(contents) = buf.as_slice().try_into() else {
+            let Ok(contents) = buf_reader.try_into() else {
                 return None;
             };
 

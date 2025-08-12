@@ -88,7 +88,7 @@ mod test {
     use std::time::{Duration, Instant};
 
     use crate::io::{Protocol, StunMessage, StunPacket};
-    use tracing::Span;
+    // use tracing::Span;
     use tracing_subscriber::util::SubscriberInitExt;
 
     pub fn sock(s: impl Into<String>) -> SocketAddr {
