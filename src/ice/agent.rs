@@ -2155,7 +2155,7 @@ mod test {
         agent.add_remote_candidate(remote_candidate);
         agent.handle_timeout(Instant::now());
 
-        let payload = Vec::from(agent.poll_transmit().unwrap().contents);
+        let payload = Bytes::from(agent.poll_transmit().unwrap().contents);
         let stun_message = StunMessage::parse(&payload).unwrap();
 
         let valid_reply =
@@ -2208,7 +2208,7 @@ mod test {
         agent.handle_timeout(Instant::now());
 
         // Now should have a response
-        let payload = Vec::from(agent.poll_transmit().unwrap().contents);
+        let payload = Bytes::from(agent.poll_transmit().unwrap().contents);
         let stun_message = StunMessage::parse(&payload).unwrap();
         assert!(stun_message.is_successful_binding_response());
     }
