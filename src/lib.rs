@@ -1736,6 +1736,8 @@ impl Rtc {
                         return true;
                     }
                 }
+            }
+        };
 
         // Fast path: DTLS, RTP, and RTCP traffic coming in from the same socket address
         // we've nominated for sending via the ICE agent. This is the typical case

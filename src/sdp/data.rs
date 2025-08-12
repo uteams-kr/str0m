@@ -1150,7 +1150,6 @@ impl fmt::Display for Sdp {
 
 impl fmt::Display for Session {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-<<<<<<< HEAD
         write!(f, "v=0\r\n")?;
         write!(f, "o=UEsm-cdn-{}/{} {} 2 IN IP4 0.0.0.0\r\n", build::SHORT_COMMIT, build::BUILD_TIME.replace(" ", "/"), self.id)?;
         write!(f, "s=-\r\n")?;
